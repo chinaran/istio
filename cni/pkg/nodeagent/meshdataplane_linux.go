@@ -18,6 +18,7 @@ import (
 	"errors"
 	"net/netip"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 	corev1 "k8s.io/api/core/v1"
@@ -26,7 +27,17 @@ import (
 	set "istio.io/istio/cni/pkg/addressset"
 	"istio.io/istio/cni/pkg/trafficmanager"
 	"istio.io/istio/cni/pkg/util"
+	"istio.io/istio/pkg/monitoring"
 	"istio.io/istio/pkg/util/sets"
+)
+
+var (
+	reconcileResultTag = monitoring.CreateLabel("result")
+
+	hostRulesReconciles = monitoring.NewSum(
+		"nodeagent_host_rules_reconciles_total",
+		"The total number of host rule reconcile operations that detected drift or failed (result: repaired/failed).",
+	)
 )
 
 type meshDataplane struct {
@@ -34,6 +45,16 @@ type meshDataplane struct {
 	netServer          MeshDataplane
 	hostTrafficManager trafficmanager.TrafficRuleManager
 	hostAddrSet        set.AddressSetManager
+
+	// hostRulesReconcileInterval 是宿主机规则周期性 reconcile 的间隔，<=0 表示禁用。
+	// 用于在运行期检测并修复被外部（firewalld reload、iptables-restore 等）清除的
+	// 宿主机健康检查规则（istio/istio#60607）。
+	hostRulesReconcileInterval time.Duration
+	// stopHostRulesReconcile/hostRulesReconcileDone 用于在 Stop 时确定性地终止
+	// reconcile 循环：必须先等循环退出再删除宿主机规则，否则循环可能把刚删掉的
+	// 规则又补回来，导致卸载后残留。
+	stopHostRulesReconcile context.CancelFunc
+	hostRulesReconcileDone chan struct{}
 
 	// branchENIRules tracks the branch ENI routing info we added rules for,
 	// keyed by pod IP. We cache it at add time so teardown can delete the rules
@@ -58,10 +79,54 @@ func (s *meshDataplane) ConstructInitialSnapshot(existingAmbientPods []*corev1.P
 // ConstructInitialSnapshot should always be invoked before this function.
 func (s *meshDataplane) Start(ctx context.Context) {
 	s.netServer.Start(ctx)
+
+	if s.hostRulesReconcileInterval > 0 {
+		loopCtx, cancel := context.WithCancel(ctx)
+		s.stopHostRulesReconcile = cancel
+		s.hostRulesReconcileDone = make(chan struct{})
+		go s.reconcileHostRulesLoop(loopCtx)
+	}
+}
+
+// reconcileHostRulesLoop 周期性校验宿主机健康检查规则并在漂移时重装。
+// 设计参考 kube-proxy 的周期 sync（默认 30s）与 kube-ovn 的 wait.Until 幂等重刷：
+// 无漂移时校验为只读操作（iptables-save + iptables -C），不产生任何规则写入。
+func (s *meshDataplane) reconcileHostRulesLoop(ctx context.Context) {
+	defer close(s.hostRulesReconcileDone)
+	log.Infof("starting host rules reconcile loop (interval: %v)", s.hostRulesReconcileInterval)
+
+	ticker := time.NewTicker(s.hostRulesReconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debug("host rules reconcile loop terminated")
+			return
+		case <-ticker.C:
+			repaired, err := s.hostTrafficManager.EnsureHostRules()
+			if err != nil {
+				// 出错只记录并等待下个 tick 重试（tick 本身即节流，无需额外 backoff）
+				log.Errorf("failed to reconcile host rules, will retry on next tick: %v", err)
+				hostRulesReconciles.With(reconcileResultTag.Value("failed")).Increment()
+				continue
+			}
+			if repaired {
+				log.Info("host rules drift detected and repaired")
+				hostRulesReconciles.With(reconcileResultTag.Value("repaired")).Increment()
+			}
+		}
+	}
 }
 
 // Stop terminates the netserver, flushes host ipsets, and removes host iptables healthprobe rules.
 func (s *meshDataplane) Stop(skipCleanup bool) {
+	// 先确定性地停掉 reconcile 循环，再执行清理：
+	// 避免循环与 DeleteHostRules 竞态，把刚删除的规则重新装回去。
+	if s.stopHostRulesReconcile != nil {
+		s.stopHostRulesReconcile()
+		<-s.hostRulesReconcileDone
+	}
+
 	// Remove host rules (or not) that allow pod healthchecks to work.
 	// These are not critical but if they are not in place pods that have
 	// already been captured will eventually start to fail kubelet healthchecks.

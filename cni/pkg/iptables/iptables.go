@@ -585,6 +585,52 @@ func (cfg *IptablesConfigurator) CreateHostRulesForHealthChecks() error {
 	})
 }
 
+// EnsureHostRules 校验宿主机 netns 中的健康检查规则是否与期望状态一致，
+// 一致则不做任何写操作；检测到漂移（规则被外部 flush/覆写）时先删后建地重装规则。
+// 该方法幂等，供周期性 reconcile 循环调用（istio/istio#60607）。
+//
+// 注意：
+//   - 这里刻意不复用 cfg.Reconcile 的 cleanup 路径：那条路径会在 filter 表的
+//     INPUT/FORWARD/OUTPUT 架设 DROP guardrails，在 pod netns 是防泄漏保护，
+//     在宿主机 netns 会瞬断整个节点的流量，绝不能启用；
+//   - 修复动作采用与启动路径一致的 DeleteHostRules + CreateHostRulesForHealthChecks
+//     先删后建序列，而非直接重放 iptables-restore：restore 载荷以 -N 建链，链已存在
+//     时会执行失败（部分残留场景永不收敛），直接重放也会在 POSTROUTING 重复插 jump。
+func (cfg *IptablesConfigurator) EnsureHostRules() (bool, error) {
+	builder := cfg.AppendHostRules()
+
+	// verify 范围与管理范围严格一致：IPv6 未启用时跳过 v6 校验，
+	// 否则宿主机上残留的 v6 ISTIO 链会造成"永远存在 delta"的重装震荡。
+	ipt6V := &cfg.ipt6V
+	if !cfg.cfg.EnableIPv6 {
+		ipt6V = nil
+	}
+
+	converged := true
+	err := util.RunAsHost(func() error {
+		// VerifyIptablesState 为只读操作（iptables-save + 逐条 iptables -C）；
+		// save 失败时按"干净状态"处理并返回 delta，走一次幂等重装兜底。
+		_, deltaExists := iptablescapture.VerifyIptablesState(
+			log.WithLabels("component", "host"), cfg.ext, builder, &cfg.iptV, ipt6V)
+		converged = !deltaExists
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	if converged {
+		return false, nil
+	}
+
+	log.WithLabels("component", "host").
+		Warn("detected drift in host-level iptables rules (external flush/overwrite?), re-applying them")
+	cfg.DeleteHostRules()
+	if err := cfg.CreateHostRulesForHealthChecks(); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
 func (cfg *IptablesConfigurator) DeleteHostRules() {
 	log.Debug("Attempting to delete hostside iptables rules (if they exist)")
 	builder := cfg.AppendHostRules()

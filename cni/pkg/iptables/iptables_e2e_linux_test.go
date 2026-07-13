@@ -30,6 +30,7 @@ import (
 	"istio.io/istio/cni/pkg/scopes"
 	"istio.io/istio/pkg/test/util/assert"
 	iptablescapture "istio.io/istio/tools/istio-iptables/pkg/capture"
+	iptablesconstants "istio.io/istio/tools/istio-iptables/pkg/constants"
 	dep "istio.io/istio/tools/istio-iptables/pkg/dependencies"
 )
 
@@ -253,6 +254,79 @@ func TestIptablesHostCleanRoundTrip(t *testing.T) {
 			assert.NoError(t, iptConfigurator.CreateHostRulesForHealthChecks())
 		})
 	}
+}
+
+// TestEnsureHostRulesRepairsExternalFlushE2E 在真实内核上复现 istio/istio#60607：
+// 外部动作清空 ISTIO_POSTRT 链后，EnsureHostRules 应检测到漂移并把宿主机规则修复到收敛状态。
+func TestEnsureHostRulesRepairsExternalFlushE2E(t *testing.T) {
+	setup(t)
+
+	ext := &dep.RealDependencies{
+		UsePodScopedXtablesLock: false,
+		NetworkNamespace:        "",
+	}
+	iptVer, err := ext.DetectIptablesVersion(false)
+	if err != nil {
+		t.Fatalf("Can't detect iptables version: %v", err)
+	}
+	ipt6Ver, err := ext.DetectIptablesVersion(true)
+	if err != nil {
+		t.Fatalf("Can't detect ip6tables version")
+	}
+
+	cfg := constructTestConfig()
+
+	deps := &dep.RealDependencies{}
+	set, err := createHostsideProbeIpset(true)
+	if err != nil {
+		t.Fatalf("failed to create hostside probe ipset: %v", err)
+	}
+	defer func() {
+		assert.NoError(t, set.DestroySet())
+	}()
+
+	iptConfigurator, _, err := NewIptablesConfigurator(cfg, cfg, deps, deps, RealNlDeps())
+	if err != nil {
+		t.Fatalf("failed to setup iptables configurator: %v", err)
+	}
+	builder := iptConfigurator.AppendHostRules()
+	defer func() {
+		iptConfigurator.DeleteHostRules()
+	}()
+
+	assert.NoError(t, iptConfigurator.CreateHostRulesForHealthChecks())
+
+	// 收敛状态下 EnsureHostRules 必须是只读 no-op
+	repaired, err := iptConfigurator.EnsureHostRules()
+	assert.NoError(t, err)
+	assert.Equal(t, repaired, false)
+
+	// 模拟外部 flush（issue 的复现步骤）：清空 ISTIO_POSTRT 链但保留链与 jump
+	if _, err := ext.Run(log, false, iptablesconstants.IPTables, &iptVer, nil,
+		"-t", "nat", "-F", ChainHostPostrouting); err != nil {
+		t.Fatalf("failed to simulate external flush: %v", err)
+	}
+	_, deltaExists := iptablescapture.VerifyIptablesState(log, iptConfigurator.ext, builder, &iptVer, &ipt6Ver)
+	assert.Equal(t, deltaExists, true)
+
+	// EnsureHostRules 应检测到漂移并修复
+	repaired, err = iptConfigurator.EnsureHostRules()
+	assert.NoError(t, err)
+	assert.Equal(t, repaired, true)
+
+	residueExists, deltaExists := iptablescapture.VerifyIptablesState(log, iptConfigurator.ext, builder, &iptVer, &ipt6Ver)
+	assert.Equal(t, residueExists, true)
+	assert.Equal(t, deltaExists, false)
+
+	// 更彻底的破坏：连链带 jump 一起删掉，同样应能修复
+	iptConfigurator.DeleteHostRules()
+	repaired, err = iptConfigurator.EnsureHostRules()
+	assert.NoError(t, err)
+	assert.Equal(t, repaired, true)
+
+	residueExists, deltaExists = iptablescapture.VerifyIptablesState(log, iptConfigurator.ext, builder, &iptVer, &ipt6Ver)
+	assert.Equal(t, residueExists, true)
+	assert.Equal(t, deltaExists, false)
 }
 
 var initialized = &sync.Once{}

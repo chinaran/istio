@@ -104,6 +104,14 @@ func (m *IptablesTrafficManager) DeleteHostRules() {
 	}
 }
 
+// EnsureHostRules 校验宿主机 iptables 规则并在漂移时重装（幂等，供周期性 reconcile 调用）
+func (m *IptablesTrafficManager) EnsureHostRules() (bool, error) {
+	if m.hostIptables == nil {
+		return false, fmt.Errorf("host iptables configurator not available (this is likely a pod-only traffic manager)")
+	}
+	return m.hostIptables.EnsureHostRules()
+}
+
 // ReconcileModeEnabled returns true if reconciliation mode is enabled
 func (m *IptablesTrafficManager) ReconcileModeEnabled() bool {
 	if m.podIptables == nil {

@@ -16,6 +16,7 @@ package nodeagent
 
 import (
 	"net/netip"
+	"time"
 
 	"istio.io/istio/cni/pkg/util"
 	"istio.io/istio/pkg/config/constants"
@@ -57,6 +58,9 @@ type AmbientArgs struct {
 	DNSCapture                 bool
 	EnableIPv6                 bool
 	ReconcilePodRulesOnStartup bool
+	// ReconcileHostRulesInterval 是运行期宿主机健康检查规则的周期性 reconcile 间隔，
+	// <=0 表示禁用（istio/istio#60607）
+	ReconcileHostRulesInterval time.Duration
 	NativeNftables             bool
 	ForceIptablesBinary        string
 }

@@ -160,6 +160,9 @@ type InstallConfig struct {
 	// Whether reconciliation of iptables at post startup is enabled for Ambient workloads
 	AmbientReconcilePodRulesOnStartup bool
 
+	// 运行期宿主机健康检查规则的周期性 reconcile 间隔（duration 字符串，如 "30s"；"0" 表示禁用）
+	AmbientReconcileHostRulesInterval string
+
 	// Whether to retry checking if a pod is ambient in the cni plugin when there are errors
 	EnableAmbientDetectionRetry bool
 
@@ -251,6 +254,7 @@ func (c InstallConfig) String() string {
 	b.WriteString("AmbientIPv6: " + fmt.Sprint(c.AmbientIPv6) + "\n")
 	b.WriteString("AmbientDisableSafeUpgrade: " + fmt.Sprint(c.AmbientDisableSafeUpgrade) + "\n")
 	b.WriteString("AmbientReconcilePodRulesOnStartup: " + fmt.Sprint(c.AmbientReconcilePodRulesOnStartup) + "\n")
+	b.WriteString("AmbientReconcileHostRulesInterval: " + c.AmbientReconcileHostRulesInterval + "\n")
 	b.WriteString("EnableAmbientDetectionRetry: " + fmt.Sprint(c.EnableAmbientDetectionRetry) + "\n")
 
 	b.WriteString("NativeNftables: " + fmt.Sprint(c.NativeNftables) + "\n")

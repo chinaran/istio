@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -127,6 +128,7 @@ var rootCmd = &cobra.Command{
 					DNSCapture:                 cfg.InstallConfig.AmbientDNSCapture,
 					EnableIPv6:                 cfg.InstallConfig.AmbientIPv6,
 					ReconcilePodRulesOnStartup: cfg.InstallConfig.AmbientReconcilePodRulesOnStartup,
+					ReconcileHostRulesInterval: parseReconcileHostRulesInterval(cfg.InstallConfig.AmbientReconcileHostRulesInterval),
 					NativeNftables:             cfg.InstallConfig.NativeNftables,
 					ForceIptablesBinary:        cfg.InstallConfig.ForceIptablesBinary,
 				})
@@ -266,6 +268,30 @@ func init() {
 		"A set of field selectors in label=value format that will be added to the pod list filters")
 }
 
+// defaultReconcileHostRulesInterval 是宿主机健康检查规则周期性 reconcile 的默认间隔，
+// 与 kube-proxy 的 --iptables-sync-period 默认值保持一致。
+const defaultReconcileHostRulesInterval = 30 * time.Second
+
+// parseReconcileHostRulesInterval 解析宿主机规则 reconcile 间隔：
+// 空串或非法值告警并回退默认值；<=0 表示禁用该功能。
+func parseReconcileHostRulesInterval(raw string) time.Duration {
+	if raw == "" {
+		return defaultReconcileHostRulesInterval
+	}
+	interval, err := time.ParseDuration(raw)
+	if err != nil {
+		log.Warnf("invalid %s value %q, falling back to default %v: %v",
+			constants.AmbientReconcileHostRulesInterval, raw, defaultReconcileHostRulesInterval, err)
+		return defaultReconcileHostRulesInterval
+	}
+	if interval <= 0 {
+		log.Infof("host rules periodic reconcile is disabled (%s=%q)",
+			constants.AmbientReconcileHostRulesInterval, raw)
+		return 0
+	}
+	return interval
+}
+
 func registerStringParameter(name, value, usage string) {
 	rootCmd.Flags().String(name, value, usage)
 	registerEnvironment(name, value, usage)
@@ -333,6 +359,7 @@ func constructConfig() (*config.Config, error) {
 		AmbientIPv6:                       viper.GetBool(constants.AmbientIPv6),
 		AmbientDisableSafeUpgrade:         viper.GetBool(constants.AmbientDisableSafeUpgrade),
 		AmbientReconcilePodRulesOnStartup: viper.GetBool(constants.AmbientReconcilePodRulesOnStartup),
+		AmbientReconcileHostRulesInterval: viper.GetString(constants.AmbientReconcileHostRulesInterval),
 		EnableAmbientDetectionRetry:       viper.GetBool(constants.EnableAmbientDetectionRetry),
 
 		NativeNftables:      viper.GetBool(constants.NativeNftables),
