@@ -58,8 +58,8 @@ type AmbientArgs struct {
 	DNSCapture                 bool
 	EnableIPv6                 bool
 	ReconcilePodRulesOnStartup bool
-	// ReconcileHostRulesInterval is the interval of the periodic runtime reconciliation
-	// of the host-level health check rules, <= 0 disables it (istio/istio#60607)
+	// ReconcileHostRulesInterval 是主机级健康检查规则运行时定期协调的间隔，
+	// 小于等于 0 时禁用（istio/istio#60607）。
 	ReconcileHostRulesInterval time.Duration
 	NativeNftables             bool
 	ForceIptablesBinary        string

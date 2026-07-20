@@ -489,20 +489,15 @@ func (cfg *NftablesConfigurator) CreateHostRulesForHealthChecks() error {
 	})
 }
 
-// EnsureHostRules re-asserts the health check rules in the host netns, meant to be
-// invoked from a periodic reconcile loop.
+// EnsureHostRules 在主机网络命名空间中重新应用健康检查规则，供定期协调循环调用。
 //
-// For the nftables backend, CreateHostRulesForHealthChecks is already an idempotent
-// atomic re-program: the transaction flushes the istio-ambient-nat table (rules only,
-// set elements are preserved) and then re-adds the chains and rules. Unconditionally
-// re-programming is therefore enough to converge, without comparing rule text first
-// (nft rule text gets normalized by the kernel, which makes per-rule comparison both
-// fragile and unnecessary). This also happens to repair rules that became stale
-// because the kubelet UID changed across a kubelet restart - a drift mode specific to
-// the nftables backend.
+// 对 nftables 后端而言，CreateHostRulesForHealthChecks 已经是幂等的原子重编程操作：
+// 事务会清空 istio-ambient-nat 表中的规则（保留集合元素），然后重新添加链和规则。
+// 因此，无条件重新编程即可使状态收敛，无需先比较规则文本。nft 规则文本会被内核规范化，
+// 逐条比较既脆弱也没有必要。该操作还会修复因 kubelet 重启前后 UID 变化而失效的规则，
+// 这是 nftables 后端特有的一种漂移模式。
 //
-// Since there is no separate drift detection step, repaired is always false (a no-op
-// cannot be distinguished from an actual repair).
+// 由于没有独立的漂移检测步骤，repaired 始终为 false（无法区分无操作与实际修复）。
 func (cfg *NftablesConfigurator) EnsureHostRules() (bool, error) {
 	return false, cfg.CreateHostRulesForHealthChecks()
 }

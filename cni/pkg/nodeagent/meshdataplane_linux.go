@@ -46,15 +46,13 @@ type meshDataplane struct {
 	hostTrafficManager trafficmanager.TrafficRuleManager
 	hostAddrSet        set.AddressSetManager
 
-	// hostRulesReconcileInterval is the interval of the periodic host rules reconcile
-	// loop, <= 0 disables it. The loop detects and repairs host-level health check
-	// rules removed at runtime by external actors (firewalld reloads, an
-	// iptables-restore from an OS persistence unit, etc), see istio/istio#60607.
+	// hostRulesReconcileInterval 是主机规则定期协调循环的间隔，小于等于 0 时禁用。
+	// 该循环检测并修复运行时被外部组件删除的主机级健康检查规则，例如 firewalld 重载，
+	// 或操作系统持久化单元执行 iptables-restore，详见 istio/istio#60607。
 	hostRulesReconcileInterval time.Duration
-	// stopHostRulesReconcile/hostRulesReconcileDone deterministically terminate the
-	// reconcile loop on Stop: the loop must have exited before the host rules are
-	// deleted, otherwise it could re-install the rules we just removed and leave
-	// residue behind after uninstall.
+	// stopHostRulesReconcile/hostRulesReconcileDone 确保 Stop 能确定性地终止协调循环：
+	// 删除主机规则前，该循环必须已经退出；否则它可能重新安装刚删除的规则，
+	// 导致卸载后仍有规则残留。
 	stopHostRulesReconcile context.CancelFunc
 	hostRulesReconcileDone chan struct{}
 
@@ -90,11 +88,10 @@ func (s *meshDataplane) Start(ctx context.Context) {
 	}
 }
 
-// reconcileHostRulesLoop periodically verifies the host-level health check rules and
-// re-installs them when drift is detected. The design follows kube-proxy's periodic
-// sync (30s by default) and kube-ovn's wait.Until idempotent re-assert: when there is
-// no drift the verification is read-only (iptables-save + iptables -C) and no rule
-// writes happen.
+// reconcileHostRulesLoop 定期验证主机级健康检查规则，并在检测到漂移时重新安装。
+// 该设计参考 kube-proxy 的定期同步（默认 30 秒）以及 kube-ovn 基于 wait.Until 的
+// 幂等重应用方式：没有漂移时只进行只读验证（iptables-save + iptables -C），
+// 不会写入任何规则。
 func (s *meshDataplane) reconcileHostRulesLoop(ctx context.Context) {
 	defer close(s.hostRulesReconcileDone)
 	log.Infof("starting host rules reconcile loop (interval: %v)", s.hostRulesReconcileInterval)
@@ -109,8 +106,8 @@ func (s *meshDataplane) reconcileHostRulesLoop(ctx context.Context) {
 		case <-ticker.C:
 			repaired, err := s.hostTrafficManager.EnsureHostRules()
 			if err != nil {
-				// On error just log and retry on the next tick (the ticker itself
-				// provides throttling, no extra backoff needed)
+				// 出错时只记录日志并在下一个周期重试；定时器本身已提供节流，
+				// 无需额外退避。
 				log.Errorf("failed to reconcile host rules, will retry on next tick: %v", err)
 				hostRulesReconciles.With(reconcileResultTag.Value("failed")).Increment()
 				continue
@@ -125,8 +122,7 @@ func (s *meshDataplane) reconcileHostRulesLoop(ctx context.Context) {
 
 // Stop terminates the netserver, flushes host ipsets, and removes host iptables healthprobe rules.
 func (s *meshDataplane) Stop(skipCleanup bool) {
-	// Deterministically stop the reconcile loop before cleaning up, so that it cannot
-	// race with DeleteHostRules and re-install the rules we just removed.
+	// 清理前确定性地停止协调循环，避免它与 DeleteHostRules 发生竞争并重新安装刚删除的规则。
 	if s.stopHostRulesReconcile != nil {
 		s.stopHostRulesReconcile()
 		<-s.hostRulesReconcileDone

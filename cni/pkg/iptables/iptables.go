@@ -588,22 +588,19 @@ func (cfg *IptablesConfigurator) CreateHostRulesForHealthChecks() error {
 	})
 }
 
-// EnsureHostRules verifies that the health check rules in the host netns are still in
-// place and re-installs them when they have drifted (flushed/overwritten by an external
-// actor). When everything is in place it performs no writes at all. It is idempotent
-// and meant to be invoked from a periodic reconcile loop (istio/istio#60607).
+// EnsureHostRules 验证主机网络命名空间中的健康检查规则是否仍然存在，并在规则发生漂移
+// （被外部组件清空或覆盖）时重新安装。规则完整时不会执行任何写操作。
+// 该方法具备幂等性，供定期协调循环调用（istio/istio#60607）。
 //
-// Notes:
-//   - This deliberately does NOT reuse the cfg.Reconcile cleanup path: that path sets up
-//     DROP guardrails in the filter table INPUT/FORWARD/OUTPUT chains. Inside a pod netns
-//     they prevent traffic from escaping the mesh while rules are rebuilt, but in the
-//     host netns they would drop the entire node's traffic, so they must never be
-//     enabled here.
-//   - The repair reuses the same retried DeleteHostRules + CreateHostRulesForHealthChecks
-//     delete-then-create sequence as the startup path, instead of simply replaying
-//     iptables-restore: the restore payload creates chains with -N, which fails when the
-//     chain already exists (so partial residue would never converge), and replaying
-//     would also duplicate the POSTROUTING jump.
+// 注意：
+//   - 此处特意不复用 cfg.Reconcile 清理路径：该路径会在 filter 表的
+//     INPUT/FORWARD/OUTPUT 链中设置 DROP 防护规则。在 Pod 网络命名空间中，
+//     这些规则可在重建规则期间防止流量绕过网格；但在主机网络命名空间中，
+//     它们会丢弃整个节点的流量，因此绝不能在此启用。
+//   - 修复流程复用启动路径中带重试的 DeleteHostRules + CreateHostRulesForHealthChecks
+//     先删后建序列，而不是简单地重放 iptables-restore：恢复内容使用 -N 创建链，
+//     当链已存在时会失败（因此残留的部分规则永远无法收敛），重放还会重复添加
+//     POSTROUTING 跳转规则。
 func (cfg *IptablesConfigurator) EnsureHostRules() (bool, error) {
 	builder := cfg.AppendHostRules()
 
@@ -614,9 +611,8 @@ func (cfg *IptablesConfigurator) EnsureHostRules() (bool, error) {
 		return err
 	})
 	if err != nil {
-		// The state could not be read; that is not evidence that the (possibly
-		// healthy) rules are gone. Skip the repair instead of deleting live rules
-		// based on a failed read - the loop will verify again on the next tick.
+		// 无法读取状态并不代表规则已经消失（规则可能仍然正常）。跳过修复，避免因读取失败
+		// 而删除仍在生效的规则；协调循环会在下一个周期再次验证。
 		return false, fmt.Errorf("failed to verify host iptables rules, skipping repair: %w", err)
 	}
 	if converged {
@@ -625,9 +621,8 @@ func (cfg *IptablesConfigurator) EnsureHostRules() (bool, error) {
 
 	log.WithLabels("component", "host").
 		Warn("detected drift in host-level iptables rules (external flush/overwrite?), re-applying them")
-	// Once the leftovers are deleted the re-create must succeed, otherwise the node
-	// would be left without probe SNAT rules until the next tick; retry the sequence
-	// like the startup path does, but bounded well below the reconcile interval.
+	// 删除残留规则后必须成功重建，否则节点在下一个协调周期前都将缺少探针 SNAT 规则；
+	// 因此像启动路径一样重试该序列，但将重试总时长限制在远小于协调间隔的范围内。
 	err = backoff.Retry(func() error {
 		cfg.DeleteHostRules()
 		return cfg.CreateHostRulesForHealthChecks()
@@ -638,20 +633,17 @@ func (cfg *IptablesConfigurator) EnsureHostRules() (bool, error) {
 	return true, nil
 }
 
-// hostRulesConverged reports whether every host-level rule this configurator manages is
-// still present, using the same read-only probes as VerifyIptablesState (an
-// iptables-save snapshot for chain existence and ISTIO_* chain rule counts, plus a
-// per-rule `iptables -C`). It intentionally diverges from VerifyIptablesState in two
-// ways that matter for a periodic runtime loop:
-//   - a failed iptables-save is returned as an error instead of being reported as
-//     drift, so a transient read failure can never trigger a destructive repair;
-//   - ISTIO_* chains that are not part of the expected host state (e.g. residue from
-//     other istio components or versions) are ignored, since the delete+create repair
-//     cannot remove chains it does not own and treating them as drift would make the
-//     loop re-apply the rules on every tick without ever converging.
+// hostRulesConverged 报告此配置器管理的所有主机级规则是否仍然存在。
+// 它使用与 VerifyIptablesState 相同的只读探测方式：通过 iptables-save 快照检查链是否存在
+// 以及 ISTIO_* 链的规则数量，并对每条规则执行 `iptables -C`。对于周期性运行时循环，
+// 它有意在以下两点上采用与 VerifyIptablesState 不同的处理方式：
+//   - iptables-save 失败时返回错误，而不是将其报告为规则漂移，确保瞬时读取故障
+//     永远不会触发破坏性修复；
+//   - 忽略不属于预期主机状态的 ISTIO_* 链（例如其他 Istio 组件或版本留下的残留）。
+//     删除并重建的修复流程无法移除不归其管理的链；若将这些链视为漂移，协调循环会在
+//     每个周期重复应用规则，却永远无法收敛。
 //
-// The IPv6 state is only verified when IPv6 is enabled, since no v6 rules are managed
-// otherwise.
+// 仅在启用 IPv6 时验证 IPv6 状态，因为未启用时不会管理任何 IPv6 规则。
 func (cfg *IptablesConfigurator) hostRulesConverged(ruleBuilder *builder.IptablesRuleBuilder) (bool, error) {
 	log := log.WithLabels("component", "host")
 	type ipFamily struct {

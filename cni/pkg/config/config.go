@@ -160,8 +160,8 @@ type InstallConfig struct {
 	// Whether reconciliation of iptables at post startup is enabled for Ambient workloads
 	AmbientReconcilePodRulesOnStartup bool
 
-	// The interval of the periodic runtime reconciliation of the ambient host-level
-	// health check rules (duration string, e.g. "30s"; "0" disables it)
+	// ambient 主机级健康检查规则运行时定期协调的间隔
+	// （时长字符串，例如 "30s"；"0" 表示禁用）。
 	AmbientReconcileHostRulesInterval string
 
 	// Whether to retry checking if a pod is ambient in the cni plugin when there are errors

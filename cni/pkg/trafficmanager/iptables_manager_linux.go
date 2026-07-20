@@ -104,8 +104,8 @@ func (m *IptablesTrafficManager) DeleteHostRules() {
 	}
 }
 
-// EnsureHostRules verifies the host-level iptables rules and re-installs them on drift
-// (idempotent, meant for the periodic reconcile loop)
+// EnsureHostRules 验证主机级 iptables 规则，并在规则发生漂移时重新安装；
+// 该方法具备幂等性，供定期协调循环调用。
 func (m *IptablesTrafficManager) EnsureHostRules() (bool, error) {
 	if m.hostIptables == nil {
 		return false, fmt.Errorf("host iptables configurator not available (this is likely a pod-only traffic manager)")

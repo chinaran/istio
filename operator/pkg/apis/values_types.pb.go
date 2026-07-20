@@ -754,9 +754,8 @@ type CNIAmbientConfig struct {
 	Ipv6 *wrapperspb.BoolValue `protobuf:"bytes,7,opt,name=ipv6,proto3" json:"ipv6,omitempty"`
 	// If enabled, and ambient is enabled, iptables reconciliation will be enabled.
 	ReconcileIptablesOnStartup *wrapperspb.BoolValue `protobuf:"bytes,9,opt,name=reconcileIptablesOnStartup,proto3" json:"reconcileIptablesOnStartup,omitempty"`
-	// The interval at which the CNI agent periodically verifies the ambient host-level
-	// health check rules and re-installs them if they were removed by an external actor,
-	// as a duration string (e.g. "30s"). "0" disables the periodic reconciliation.
+	// CNI 代理定期验证 ambient 主机级健康检查规则的间隔。若规则被外部组件删除，
+	// CNI 代理会重新安装规则。该值为时长字符串（例如 "30s"）；"0" 表示禁用定期协调。
 	ReconcileHostRulesInterval string `protobuf:"bytes,10,opt,name=reconcileHostRulesInterval,proto3" json:"reconcileHostRulesInterval,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache

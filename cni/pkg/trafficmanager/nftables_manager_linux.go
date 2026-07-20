@@ -87,8 +87,8 @@ func (m *NftablesTrafficManager) DeleteHostRules() {
 	}
 }
 
-// EnsureHostRules re-asserts the host-level nftables rules (idempotent, meant for the
-// periodic reconcile loop)
+// EnsureHostRules 重新应用主机级 nftables 规则；
+// 该方法具备幂等性，供定期协调循环调用。
 func (m *NftablesTrafficManager) EnsureHostRules() (bool, error) {
 	if m.hostNftables == nil {
 		return false, fmt.Errorf("host nftables configurator not available (this is likely a pod-only traffic manager)")

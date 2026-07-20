@@ -268,13 +268,13 @@ func init() {
 		"A set of field selectors in label=value format that will be added to the pod list filters")
 }
 
-// defaultReconcileHostRulesInterval is the default interval of the periodic host rules
-// reconciliation, matching kube-proxy's --iptables-sync-period default.
+// defaultReconcileHostRulesInterval 是主机规则定期协调的默认间隔，
+// 与 kube-proxy 的 --iptables-sync-period 默认值保持一致。
 const defaultReconcileHostRulesInterval = 30 * time.Second
 
-// parseReconcileHostRulesInterval parses the host rules reconcile interval:
-// an empty or invalid value logs a warning and falls back to the default;
-// <= 0 disables the feature.
+// parseReconcileHostRulesInterval 解析主机规则协调间隔：
+// 空值或无效值会记录警告并回退到默认值；
+// 小于等于 0 时禁用此功能。
 func parseReconcileHostRulesInterval(raw string) time.Duration {
 	if raw == "" {
 		return defaultReconcileHostRulesInterval

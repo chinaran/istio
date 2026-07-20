@@ -73,10 +73,10 @@ _internal_defaults_do_not_set:
     # If enabled, and ambient is enabled, the CNI agent will reconcile incompatible iptables rules and chains at startup.
     # This is enabled by default
     reconcileIptablesOnStartup: true
-    # If ambient is enabled, the CNI agent will periodically verify the host-level health check
-    # rules (nat POSTROUTING -> ISTIO_POSTRT SNAT) at this interval, and re-install them if they
-    # were removed by an external actor (e.g. a firewalld reload or an iptables-restore from an
-    # OS persistence unit). Set to "0" to disable the periodic reconciliation.
+    # 启用 ambient 后，CNI 代理会按此间隔定期验证主机级健康检查规则
+    # （nat POSTROUTING -> ISTIO_POSTRT SNAT），并在规则被外部组件删除时重新安装，
+    # 例如 firewalld 重载，或操作系统持久化单元执行 iptables-restore。
+    # 设置为 "0" 可禁用定期协调。
     reconcileHostRulesInterval: "30s"
     # If enabled, and ambient is enabled, the CNI agent will always share the network namespace of the host node it is running on
     shareHostNetworkNamespace: false

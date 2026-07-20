@@ -28,24 +28,22 @@ import (
 	dep "istio.io/istio/tools/istio-iptables/pkg/dependencies"
 )
 
-// hostStateStub builds on DependenciesStub to simulate pre-existing iptables state on
-// the host: iptables-save returns a canned snapshot (or fails with saveErr), iptables -C
-// succeeds or fails according to checkFails, iptables-restore fails for the first
-// restoreFailures invocations, and every other command is only recorded.
+// hostStateStub 基于 DependenciesStub 模拟主机上预先存在的 iptables 状态：
+// iptables-save 返回预设快照（或以 saveErr 失败），iptables -C 根据 checkFails
+// 成功或失败，iptables-restore 的前 restoreFailures 次调用失败，其他命令仅被记录。
 type hostStateStub struct {
 	dep.DependenciesStub
 	saveOutput string
 	saveErr    error
 	checkFails bool
-	// restoreFailures makes the first N iptables-restore invocations fail, to
-	// exercise the repair retry
+	// restoreFailures 使前 N 次 iptables-restore 调用失败，用于测试修复重试。
 	restoreFailures int
 }
 
 func (s *hostStateStub) Run(logger *istiolog.Scope, quietLogging bool, cmd iptablesconstants.IptablesCmd,
 	iptVer *dep.IptablesVersion, stdin io.ReadSeeker, args ...string,
 ) (*bytes.Buffer, error) {
-	// Record every executed command so that tests can assert on them
+	// 记录每条已执行的命令，供测试进行断言。
 	_, _ = s.DependenciesStub.Run(logger, quietLogging, cmd, iptVer, stdin, args...)
 	if cmd == iptablesconstants.IPTablesSave {
 		if s.saveErr != nil {
@@ -65,8 +63,8 @@ func (s *hostStateStub) Run(logger *istiolog.Scope, quietLogging bool, cmd iptab
 	return &bytes.Buffer{}, nil
 }
 
-// convergedHostState is an iptables-save snapshot that fully matches the desired host
-// rules (the POSTROUTING jump + one SNAT rule in ISTIO_POSTRT).
+// convergedHostState 是与期望主机规则完全一致的 iptables-save 快照，
+// 包含 POSTROUTING 跳转规则和 ISTIO_POSTRT 中的一条 SNAT 规则。
 const convergedHostState = `*nat
 :PREROUTING ACCEPT [0:0]
 :POSTROUTING ACCEPT [0:0]
@@ -76,9 +74,8 @@ const convergedHostState = `*nat
 COMMIT
 `
 
-// driftedHostState simulates the state after an external flush: the ISTIO_POSTRT chain
-// still exists but its rules are gone (the reproduction step of issue #60607,
-// `iptables -t nat -F ISTIO_POSTRT`).
+// driftedHostState 模拟外部清空后的状态：ISTIO_POSTRT 链仍然存在，但链内规则已消失，
+// 即问题 #60607 的复现步骤 `iptables -t nat -F ISTIO_POSTRT`。
 const driftedHostState = `*nat
 :PREROUTING ACCEPT [0:0]
 :POSTROUTING ACCEPT [0:0]
@@ -97,8 +94,7 @@ func TestEnsureHostRulesNoopWhenConverged(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, false, repaired)
 
-	// When converged this must be a pure read-only verification:
-	// no delete/recreate/restore writes are allowed
+	// 状态收敛时必须只执行只读验证，不允许执行删除、重建或恢复写操作。
 	assert.Equal(t, 0, len(ext.ExecutedStdin))
 	for _, cmd := range ext.ExecutedAll {
 		for _, forbidden := range []string{" -D ", " -F ", " -X ", "iptables-restore"} {
@@ -107,7 +103,7 @@ func TestEnsureHostRulesNoopWhenConverged(t *testing.T) {
 			}
 		}
 	}
-	// ip6tables must not be touched when IPv6 is disabled
+	// 禁用 IPv6 时不得操作 ip6tables。
 	for _, cmd := range ext.ExecutedAll {
 		if strings.Contains(cmd, "ip6tables") {
 			t.Fatalf("expected no ip6tables invocation when IPv6 is disabled, got: %v", cmd)
@@ -125,8 +121,8 @@ func TestEnsureHostRulesRepairsDrift(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, true, repaired)
 
-	// The repair must mirror the startup path: delete first (-D jump / -F / -X chain),
-	// then re-create (iptables-restore)
+	// 修复流程必须与启动路径一致：先删除（-D 跳转规则、-F/-X 链），
+	// 再通过 iptables-restore 重建。
 	joined := strings.Join(ext.ExecutedAll, "\n")
 	for _, expected := range []string{
 		"-t nat -D POSTROUTING -j ISTIO_POSTRT",
@@ -137,24 +133,22 @@ func TestEnsureHostRulesRepairsDrift(t *testing.T) {
 			t.Fatalf("expected delete command %q in executed commands:\n%v", expected, joined)
 		}
 	}
-	// The restore payload (stdin) must re-create the SNAT rule
+	// 恢复内容（标准输入）必须重新创建 SNAT 规则。
 	restorePayload := strings.Join(ext.ExecutedStdin, "\n")
 	if !strings.Contains(restorePayload, "-j SNAT --to-source 169.254.7.127") {
 		t.Fatalf("expected SNAT rule in restore payload:\n%v", restorePayload)
 	}
 
-	// Guardrail DROP rules must never show up in the host netns
-	// (they would drop the entire node's traffic)
+	// 主机网络命名空间中绝不能出现 DROP 防护规则，否则会丢弃整个节点的流量。
 	if strings.Contains(joined, "-j DROP") {
 		t.Fatalf("host rules reconcile must never install guardrail DROP rules, got:\n%v", joined)
 	}
 }
 
 func TestEnsureHostRulesSkipsRepairWhenStateUnreadable(t *testing.T) {
-	// A transient iptables-save failure means the state could not be verified, NOT
-	// that the rules have drifted. Deleting live, possibly-healthy rules based on a
-	// failed read would let the reconciler itself cause the outage it exists to
-	// prevent, so EnsureHostRules must surface the error and perform no writes.
+	// iptables-save 瞬时失败表示无法验证状态，并不表示规则发生了漂移。
+	// 若因读取失败而删除仍在生效且可能正常的规则，协调器自身反而会造成它本应避免的故障；
+	// 因此 EnsureHostRules 必须返回错误且不执行任何写操作。
 	cfg := constructTestConfig()
 	ext := &hostStateStub{saveErr: errors.New("iptables-save failed transiently")}
 	iptConfigurator, _, err := NewIptablesConfigurator(cfg, cfg, ext, ext, EmptyNlDeps())
@@ -166,7 +160,7 @@ func TestEnsureHostRulesSkipsRepairWhenStateUnreadable(t *testing.T) {
 		t.Fatal("expected an error when the iptables state cannot be read")
 	}
 
-	// No mutating command may run when verification itself failed
+	// 验证本身失败时，不得执行任何修改命令。
 	assert.Equal(t, 0, len(ext.ExecutedStdin))
 	for _, cmd := range ext.ExecutedAll {
 		for _, forbidden := range []string{" -D ", " -F ", " -X "} {
@@ -177,10 +171,10 @@ func TestEnsureHostRulesSkipsRepairWhenStateUnreadable(t *testing.T) {
 	}
 }
 
-// foreignChainHostState is convergedHostState plus an ISTIO_-prefixed chain that is not
-// part of the expected host state (e.g. residue from another istio component or
-// version). The delete+create repair cannot remove such a chain, so treating it as
-// drift would make the reconcile loop re-apply the rules every tick forever.
+// foreignChainHostState 在 convergedHostState 的基础上增加一个以 ISTIO_ 为前缀、
+// 但不属于预期主机状态的链，例如其他 Istio 组件或版本留下的残留。
+// 删除并重建的修复流程无法移除此类链；若将其视为漂移，协调循环会在每个周期
+// 不断重复应用规则，且永远无法收敛。
 const foreignChainHostState = `*nat
 :PREROUTING ACCEPT [0:0]
 :POSTROUTING ACCEPT [0:0]
@@ -198,8 +192,8 @@ func TestEnsureHostRulesIgnoresForeignIstioChains(t *testing.T) {
 	iptConfigurator, _, err := NewIptablesConfigurator(cfg, cfg, ext, ext, EmptyNlDeps())
 	assert.NoError(t, err)
 
-	// All managed rules are present, so the foreign ISTIO_OUTPUT chain must not be
-	// reported as drift and no repair may run
+	// 所有受管理的规则都存在，因此不得将外部 ISTIO_OUTPUT 链报告为漂移，
+	// 也不得执行修复。
 	repaired, err := iptConfigurator.EnsureHostRules()
 	assert.NoError(t, err)
 	assert.Equal(t, false, repaired)
@@ -207,9 +201,8 @@ func TestEnsureHostRulesIgnoresForeignIstioChains(t *testing.T) {
 }
 
 func TestEnsureHostRulesRetriesFailedRepair(t *testing.T) {
-	// Once the drifted rules have been deleted, a transiently failing re-create must
-	// be retried immediately (mirroring the startup path), instead of leaving the
-	// node without any probe SNAT rules until the next reconcile tick.
+	// 删除已漂移的规则后，如果重建发生瞬时失败，必须像启动路径一样立即重试，
+	// 不能让节点在下一个协调周期前一直缺少探针 SNAT 规则。
 	cfg := constructTestConfig()
 	ext := &hostStateStub{saveOutput: driftedHostState, restoreFailures: 1}
 	iptConfigurator, _, err := NewIptablesConfigurator(cfg, cfg, ext, ext, EmptyNlDeps())
@@ -219,7 +212,7 @@ func TestEnsureHostRulesRetriesFailedRepair(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, true, repaired)
 
-	// The first restore failed, so the payload must have been re-sent at least twice
+	// 第一次恢复失败，因此恢复内容必须至少重发两次。
 	snatAttempts := 0
 	for _, line := range ext.ExecutedStdin {
 		if strings.Contains(line, "-j SNAT --to-source 169.254.7.127") {
@@ -233,9 +226,8 @@ func TestEnsureHostRulesRetriesFailedRepair(t *testing.T) {
 }
 
 func TestEnsureHostRulesRepairsMissingCheckedRule(t *testing.T) {
-	// Chains and rule counts look right, but the per-rule -C checks fail (e.g. the
-	// POSTROUTING jump was removed externally and other rules were inserted instead);
-	// this must also trigger a repair
+	// 链和规则数量看似正确，但逐条执行 -C 检查失败，例如 POSTROUTING 跳转规则
+	// 被外部删除并替换为其他规则；此情况也必须触发修复。
 	cfg := constructTestConfig()
 	ext := &hostStateStub{saveOutput: convergedHostState, checkFails: true}
 	iptConfigurator, _, err := NewIptablesConfigurator(cfg, cfg, ext, ext, EmptyNlDeps())

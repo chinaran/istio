@@ -184,9 +184,8 @@ message CNIAmbientConfig {
   // If enabled, and ambient is enabled, iptables reconciliation will be enabled.
   google.protobuf.BoolValue reconcileIptablesOnStartup = 9;
 
-  // The interval at which the CNI agent periodically verifies the ambient host-level
-  // health check rules and re-installs them if they were removed by an external actor,
-  // as a duration string (e.g. "30s"). "0" disables the periodic reconciliation.
+  // CNI 代理定期验证 ambient 主机级健康检查规则的间隔。若规则被外部组件删除，
+  // CNI 代理会重新安装规则。该值为时长字符串（例如 "30s"）；"0" 表示禁用定期协调。
   string reconcileHostRulesInterval = 10;
 }
 

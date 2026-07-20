@@ -28,12 +28,10 @@ type TrafficRuleManager interface {
 	DeleteInpodRules(log *istiolog.Scope) error
 	CreateHostRulesForHealthChecks() error
 	DeleteHostRules()
-	// EnsureHostRules verifies that the host-level rules still match the desired state,
-	// and re-installs them if they have drifted (e.g. removed by a firewalld reload or
-	// an external iptables-restore). It is idempotent and meant to be invoked from a
-	// periodic reconcile loop. The repaired return value reports whether drift was
-	// detected and a repair was performed. When the state cannot be verified (e.g. a
-	// transient read failure) an error is returned without any repair being attempted.
+	// EnsureHostRules 验证主机级规则是否仍与期望状态一致，并在规则发生漂移时
+	// （例如被 firewalld 重载或外部 iptables-restore 删除）重新安装规则。
+	// 该方法具备幂等性，供定期协调循环调用。repaired 返回值表示是否检测到漂移
+	// 并执行了修复。无法验证状态时（例如发生瞬时读取故障），会返回错误且不尝试修复。
 	EnsureHostRules() (repaired bool, err error)
 	ReconcileModeEnabled() bool
 }

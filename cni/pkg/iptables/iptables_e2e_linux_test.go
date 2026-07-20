@@ -256,9 +256,9 @@ func TestIptablesHostCleanRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEnsureHostRulesRepairsExternalFlushE2E reproduces istio/istio#60607 against a
-// real kernel: after an external actor flushes the ISTIO_POSTRT chain, EnsureHostRules
-// must detect the drift and repair the host rules back to a converged state.
+// TestEnsureHostRulesRepairsExternalFlushE2E 在真实内核上复现 istio/istio#60607：
+// 外部组件清空 ISTIO_POSTRT 链后，EnsureHostRules 必须检测到漂移，
+// 并将主机规则修复到收敛状态。
 func TestEnsureHostRulesRepairsExternalFlushE2E(t *testing.T) {
 	setup(t)
 
@@ -297,13 +297,13 @@ func TestEnsureHostRulesRepairsExternalFlushE2E(t *testing.T) {
 
 	assert.NoError(t, iptConfigurator.CreateHostRulesForHealthChecks())
 
-	// When converged, EnsureHostRules must be a read-only no-op
+	// 状态收敛时，EnsureHostRules 必须是只读的无操作调用。
 	repaired, err := iptConfigurator.EnsureHostRules()
 	assert.NoError(t, err)
 	assert.Equal(t, repaired, false)
 
-	// Simulate an external flush (the issue's reproduction step): empty the
-	// ISTIO_POSTRT chain but keep the chain and the jump
+	// 模拟外部清空（问题的复现步骤）：清空 ISTIO_POSTRT 链，
+	// 但保留该链及其跳转规则。
 	if _, err := ext.Run(log, false, iptablesconstants.IPTables, &iptVer, nil,
 		"-t", "nat", "-F", ChainHostPostrouting); err != nil {
 		t.Fatalf("failed to simulate external flush: %v", err)
@@ -311,7 +311,7 @@ func TestEnsureHostRulesRepairsExternalFlushE2E(t *testing.T) {
 	_, deltaExists := iptablescapture.VerifyIptablesState(log, iptConfigurator.ext, builder, &iptVer, &ipt6Ver)
 	assert.Equal(t, deltaExists, true)
 
-	// EnsureHostRules must detect the drift and repair it
+	// EnsureHostRules 必须检测到漂移并完成修复。
 	repaired, err = iptConfigurator.EnsureHostRules()
 	assert.NoError(t, err)
 	assert.Equal(t, repaired, true)
@@ -320,8 +320,7 @@ func TestEnsureHostRulesRepairsExternalFlushE2E(t *testing.T) {
 	assert.Equal(t, residueExists, true)
 	assert.Equal(t, deltaExists, false)
 
-	// A more thorough breakage: remove the chain and the jump altogether,
-	// which must also be repaired
+	// 模拟更彻底的破坏：同时删除链和跳转规则，此情况也必须得到修复。
 	iptConfigurator.DeleteHostRules()
 	repaired, err = iptConfigurator.EnsureHostRules()
 	assert.NoError(t, err)

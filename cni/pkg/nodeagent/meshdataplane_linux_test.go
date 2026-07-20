@@ -30,14 +30,13 @@ import (
 	"istio.io/istio/pkg/test/util/assert"
 )
 
-// fakeTrafficRuleManager records the sequence of EnsureHostRules/DeleteHostRules calls
-// to verify the behavior of the host rules reconcile loop and the ordering guarantees
-// on Stop.
+// fakeTrafficRuleManager 记录 EnsureHostRules/DeleteHostRules 的调用顺序，
+// 用于验证主机规则协调循环的行为以及 Stop 的顺序保证。
 type fakeTrafficRuleManager struct {
 	mu     sync.Mutex
 	events []string
 
-	ensureCh chan struct{} // signals every EnsureHostRules invocation
+	ensureCh chan struct{} // 每次调用 EnsureHostRules 时发送信号
 	repaired bool
 	err      error
 }
@@ -75,7 +74,7 @@ func (f *fakeTrafficRuleManager) snapshotEvents() []string {
 }
 
 func newReconcileTestDataplane(fakeTM *fakeTrafficRuleManager, interval time.Duration) *meshDataplane {
-	// Stop(false) goes through hostAddrSet Flush/DestroySet, back them with mocks
+	// Stop(false) 会调用 hostAddrSet 的 Flush/DestroySet，因此使用模拟依赖。
 	fakeIPSetDeps := ipset.FakeNLDeps()
 	fakeIPSetDeps.On("flush", mock.Anything).Return(nil).Maybe()
 	fakeIPSetDeps.On("destroySet", mock.Anything).Return(nil).Maybe()
@@ -105,14 +104,13 @@ func TestHostRulesReconcileLoopTicksAndStops(t *testing.T) {
 	dp := newReconcileTestDataplane(fakeTM, 5*time.Millisecond)
 
 	dp.Start(context.Background())
-	// The loop must invoke EnsureHostRules periodically at the configured interval
+	// 循环必须按照配置的间隔定期调用 EnsureHostRules。
 	waitForEnsureCalls(t, fakeTM, 3)
 
 	dp.Stop(false)
 
-	// Once Stop returns the loop must have exited:
-	// 1. no ensure event may appear after the delete (cleanup) event, otherwise the
-	//    cleaned-up rules would be re-installed
+	// Stop 返回后循环必须已经退出：
+	// 1. delete（清理）事件之后不得出现 ensure 事件，否则已清理的规则会被重新安装。
 	events := fakeTM.snapshotEvents()
 	deleteSeen := false
 	for _, e := range events {
@@ -124,15 +122,14 @@ func TestHostRulesReconcileLoopTicksAndStops(t *testing.T) {
 	}
 	assert.Equal(t, true, deleteSeen)
 
-	// 2. no new ticks are produced
+	// 2. 不再产生新的定时周期事件。
 	before := len(fakeTM.snapshotEvents())
 	time.Sleep(30 * time.Millisecond)
 	assert.Equal(t, before, len(fakeTM.snapshotEvents()))
 }
 
 func TestHostRulesReconcileLoopToleratesErrors(t *testing.T) {
-	// The loop must not exit when EnsureHostRules keeps failing; it must retry on the
-	// next tick
+	// EnsureHostRules 持续失败时循环不得退出，必须在下一个周期重试。
 	fakeTM := &fakeTrafficRuleManager{ensureCh: make(chan struct{}, 64), err: errors.New("boom")}
 	dp := newReconcileTestDataplane(fakeTM, 5*time.Millisecond)
 
@@ -146,19 +143,18 @@ func TestHostRulesReconcileDisabled(t *testing.T) {
 	dp := newReconcileTestDataplane(fakeTM, 0)
 
 	dp.Start(context.Background())
-	// The loop must not be started when interval <= 0
+	// 间隔小于等于 0 时不得启动循环。
 	assert.Equal(t, true, dp.stopHostRulesReconcile == nil)
 
 	time.Sleep(20 * time.Millisecond)
 	assert.Equal(t, 0, len(fakeTM.snapshotEvents()))
 
-	// Stop must not hang waiting for a loop that was never started
+	// Stop 不得因等待从未启动的循环而阻塞。
 	dp.Stop(true)
 }
 
 func TestHostRulesReconcileStopIsIdempotentWithSkipCleanup(t *testing.T) {
-	// With skipCleanup=true (upgrade) the loop must still be stopped first, and
-	// DeleteHostRules must not be invoked
+	// skipCleanup=true（升级场景）时仍必须先停止循环，且不得调用 DeleteHostRules。
 	fakeTM := &fakeTrafficRuleManager{ensureCh: make(chan struct{}, 64)}
 	dp := newReconcileTestDataplane(fakeTM, 5*time.Millisecond)
 
