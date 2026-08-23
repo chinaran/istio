@@ -193,6 +193,11 @@ message CNIAmbientConfig {
 
   // If enabled, the CNI plugin will retry checking whether a pod is ambient enabled when there are errors.
   google.protobuf.BoolValue enableAmbientDetectionRetry = 12;
+
+  // The interval at which the CNI agent periodically verifies the ambient host-level
+  // health check rules and re-installs them if they were removed by an external actor,
+  // as a duration string (e.g. "30s"). "0" disables the periodic reconciliation.
+  string reconcileHostRulesInterval = 13;
 }
 
 message CNIRepairConfig {

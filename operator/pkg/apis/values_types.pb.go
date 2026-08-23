@@ -761,8 +761,12 @@ type CNIAmbientConfig struct {
 	ShareHostNetworkNamespace *wrapperspb.BoolValue `protobuf:"bytes,11,opt,name=shareHostNetworkNamespace,proto3" json:"shareHostNetworkNamespace,omitempty"`
 	// If enabled, the CNI plugin will retry checking whether a pod is ambient enabled when there are errors.
 	EnableAmbientDetectionRetry *wrapperspb.BoolValue `protobuf:"bytes,12,opt,name=enableAmbientDetectionRetry,proto3" json:"enableAmbientDetectionRetry,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// The interval at which the CNI agent periodically verifies the ambient host-level
+	// health check rules and re-installs them if they were removed by an external actor,
+	// as a duration string (e.g. "30s"). "0" disables the periodic reconciliation.
+	ReconcileHostRulesInterval string `protobuf:"bytes,13,opt,name=reconcileHostRulesInterval,proto3" json:"reconcileHostRulesInterval,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *CNIAmbientConfig) Reset() {
@@ -849,6 +853,13 @@ func (x *CNIAmbientConfig) GetEnableAmbientDetectionRetry() *wrapperspb.BoolValu
 		return x.EnableAmbientDetectionRetry
 	}
 	return nil
+}
+
+func (x *CNIAmbientConfig) GetReconcileHostRulesInterval() string {
+	if x != nil {
+		return x.ReconcileHostRulesInterval
+	}
+	return ""
 }
 
 type CNIRepairConfig struct {
@@ -5730,7 +5741,7 @@ const file_pkg_apis_values_types_proto_rawDesc = "" +
 	"\x0eCNIUsageConfig\x124\n" +
 	"\aenabled\x18\x01 \x01(\v2\x1a.google.protobuf.BoolValueR\aenabled\x128\n" +
 	"\achained\x18\x02 \x01(\v2\x1a.google.protobuf.BoolValueB\x02\x18\x01R\achained\x12\x1a\n" +
-	"\bprovider\x18\x03 \x01(\tR\bprovider\"\xb1\x04\n" +
+	"\bprovider\x18\x03 \x01(\tR\bprovider\"\xf1\x04\n" +
 	"\x10CNIAmbientConfig\x124\n" +
 	"\aenabled\x18\x01 \x01(\v2\x1a.google.protobuf.BoolValueR\aenabled\x12\x1c\n" +
 	"\tconfigDir\x18\x03 \x01(\tR\tconfigDir\x12:\n" +
@@ -5742,7 +5753,8 @@ const file_pkg_apis_values_types_proto_rawDesc = "" +
 	"\x13enablementSelectors\x18\n" +
 	" \x03(\v2\x17.google.protobuf.StructR\x13enablementSelectors\x12X\n" +
 	"\x19shareHostNetworkNamespace\x18\v \x01(\v2\x1a.google.protobuf.BoolValueR\x19shareHostNetworkNamespace\x12\\\n" +
-	"\x1benableAmbientDetectionRetry\x18\f \x01(\v2\x1a.google.protobuf.BoolValueR\x1benableAmbientDetectionRetry\"\xad\x03\n" +
+	"\x1benableAmbientDetectionRetry\x18\f \x01(\v2\x1a.google.protobuf.BoolValueR\x1benableAmbientDetectionRetry\x12>\n" +
+	"\x1areconcileHostRulesInterval\x18\r \x01(\tR\x1areconcileHostRulesInterval\"\xad\x03\n" +
 	"\x0fCNIRepairConfig\x124\n" +
 	"\aenabled\x18\x01 \x01(\v2\x1a.google.protobuf.BoolValueR\aenabled\x12\x10\n" +
 	"\x03hub\x18\x02 \x01(\tR\x03hub\x12(\n" +
